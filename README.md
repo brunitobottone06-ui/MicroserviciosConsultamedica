@@ -5,6 +5,14 @@ consultas, con un frontend web y un asistente de IA opcional que funciona en la 
 
 > Trabajo final de Backend. Se ejecuta solo en tu computadora con Docker Compose; no usa servicios en la nube.
 
+📄 **Documentación:**
+
+- **Este archivo** — manual de instalación y uso.
+- **[Informe técnico](docs/INFORME_TECNICO.md)** — arquitectura, API, modelo de datos, seguridad, IA, pruebas y decisiones de diseño.
+
+**Inicio rápido:** copiá `.env.example` como `.env` y completalo ([sección 3](#3-preparar-el-archivo-env)),
+ejecutá `docker compose up -d --build` en esta carpeta y abrí **http://localhost:3000**.
+
 ---
 
 ## Índice
