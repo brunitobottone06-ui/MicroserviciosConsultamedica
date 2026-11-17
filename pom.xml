@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  POM agregador: solo sirve para compilar y probar los cinco microservicios con un único comando
+  (./mvnw verify). No es un "padre": cada microservicio tiene su propio pom.xml independiente,
+  hereda directamente de spring-boot-starter-parent y puede construirse por separado.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.consultorio</groupId>
+    <artifactId>consultorio-medico</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>Consultorio medico - agregador</name>
+
+    <modules>
+        <module>services/especialidad-service</module>
+        <module>services/medico-service</module>
+        <module>services/paciente-service</module>
+        <module>services/turno-service</module>
+        <module>services/consulta-service</module>
+    </modules>
+</project>

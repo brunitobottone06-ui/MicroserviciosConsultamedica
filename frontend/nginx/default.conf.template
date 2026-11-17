@@ -1,0 +1,103 @@
+# Plantilla procesada por la imagen oficial de nginx al iniciar: reemplaza ${VARIABLES} de entorno.
+#
+# nginx cumple dos funciones:
+#  1. Sirve la aplicación React ya compilada (archivos estáticos).
+#  2. Hace de proxy inverso: /api/pacientes/... -> paciente-service, etc.
+#     Así el navegador solo habla con un origen (http://localhost:3000) y no hace falta CORS.
+#
+# Se usan variables en proxy_pass junto con "resolver" para que nginx resuelva el nombre del
+# servicio EN CADA PEDIDO. Si un microservicio está apagado, nginx igual arranca y responde 502
+# solo para ese servicio (el frontend lo muestra como "servicio no disponible").
+
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    resolver ${NGINX_RESOLVER} valid=10s ipv6=off;
+    resolver_timeout 2s;
+
+    client_max_body_size 1m;
+    proxy_connect_timeout 3s;
+    proxy_read_timeout 20s;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # ---------- APIs de los microservicios ----------
+    # Inicio de sesión y cuentas de usuario: los gestiona paciente-service
+    location /api/auth {
+        set $destino ${PACIENTE_SERVICE_URL};
+        proxy_pass $destino;
+    }
+    location /api/usuarios {
+        set $destino ${PACIENTE_SERVICE_URL};
+        proxy_pass $destino;
+    }
+    location /api/pacientes {
+        set $destino ${PACIENTE_SERVICE_URL};
+        proxy_pass $destino;
+    }
+    location /api/medicos {
+        set $destino ${MEDICO_SERVICE_URL};
+        proxy_pass $destino;
+    }
+    location /api/especialidades {
+        set $destino ${ESPECIALIDAD_SERVICE_URL};
+        proxy_pass $destino;
+    }
+    location /api/turnos {
+        set $destino ${TURNO_SERVICE_URL};
+        proxy_pass $destino;
+    }
+    location /api/consultas {
+        set $destino ${CONSULTA_SERVICE_URL};
+        proxy_pass $destino;
+    }
+    # El asistente vive en consulta-service; un modelo local puede tardar en responder.
+    location /api/asistente {
+        set $destino ${CONSULTA_SERVICE_URL};
+        proxy_read_timeout 180s;
+        proxy_pass $destino;
+    }
+
+    # ---------- Health checks (para el panel "Estado de los servicios") ----------
+    location = /estado/pacientes {
+        set $destino ${PACIENTE_SERVICE_URL};
+        proxy_pass $destino/actuator/health;
+    }
+    location = /estado/medicos {
+        set $destino ${MEDICO_SERVICE_URL};
+        proxy_pass $destino/actuator/health;
+    }
+    location = /estado/especialidades {
+        set $destino ${ESPECIALIDAD_SERVICE_URL};
+        proxy_pass $destino/actuator/health;
+    }
+    location = /estado/turnos {
+        set $destino ${TURNO_SERVICE_URL};
+        proxy_pass $destino/actuator/health;
+    }
+    location = /estado/consultas {
+        set $destino ${CONSULTA_SERVICE_URL};
+        proxy_pass $destino/actuator/health;
+    }
+
+    # Health check del propio frontend (lo usa Docker Compose)
+    location = /salud {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok";
+    }
+
+    # ---------- Aplicación React (SPA) ----------
+    location /assets/ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+    location / {
+        # Cualquier ruta del frontend (/turnos/5, /pacientes/nuevo...) devuelve index.html
+        try_files $uri $uri/ /index.html;
+    }
+}

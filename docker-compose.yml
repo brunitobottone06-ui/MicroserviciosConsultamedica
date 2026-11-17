@@ -1,0 +1,229 @@
+# Sistema de consultas médicas - ejecución LOCAL con Docker Compose.
+#
+#   Iniciar (sin IA):         docker compose up -d --build
+#   Iniciar con asistente IA: docker compose --profile ia up -d --build
+#   Detener:                  docker compose --profile ia down
+#   Detener y BORRAR datos:   docker compose --profile ia down -v
+#
+# Puertos en tu computadora (solo accesibles desde la misma PC: 127.0.0.1):
+#   Frontend .............. http://localhost:3000
+#   paciente-service ...... 8081   paciente-db ...... 5433
+#   medico-service ........ 8082   medico-db ........ 5434
+#   especialidad-service .. 8083   especialidad-db .. 5435
+#   turno-service ......... 8084   turno-db ......... 5436
+#   consulta-service ...... 8085   consulta-db ...... 5437
+#   ollama (perfil "ia") .. 11434
+#
+# Requiere un archivo .env (copiá .env.example) con DB_USERNAME y DB_PASSWORD.
+
+name: consultorio-medico
+
+# ---------- Bloques reutilizables (anclas YAML) ----------
+x-credenciales-db: &credenciales-db
+  POSTGRES_USER: ${DB_USERNAME:?Falta DB_USERNAME. Copia .env.example como .env}
+  POSTGRES_PASSWORD: ${DB_PASSWORD:?Falta DB_PASSWORD. Copia .env.example como .env}
+
+x-base-datos: &base-datos
+  image: postgres:17-alpine
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+    interval: 5s
+    timeout: 3s
+    retries: 12
+    start_period: 10s
+
+x-entorno-servicio: &entorno-servicio
+  DB_USERNAME: ${DB_USERNAME}
+  DB_PASSWORD: ${DB_PASSWORD}
+  # Clave compartida para firmar/verificar los tokens de inicio de sesión (la misma en los 5 servicios)
+  JWT_SECRETO: ${JWT_SECRETO:?Falta JWT_SECRETO en .env (minimo 32 caracteres). Ver .env.example}
+  TZ: America/Argentina/Buenos_Aires
+  CONSULTORIO_ZONA_HORARIA: America/Argentina/Buenos_Aires
+
+x-microservicio: &microservicio
+  restart: unless-stopped
+  healthcheck:
+    # Usa el endpoint de Spring Boot Actuator; SERVER_PORT lo define cada servicio.
+    test: ["CMD-SHELL", "curl -fsS http://localhost:$${SERVER_PORT}/actuator/health/readiness || exit 1"]
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 60s
+
+services:
+  # =================== Bases de datos (una por microservicio) ===================
+  paciente-db:
+    <<: *base-datos
+    environment:
+      <<: *credenciales-db
+      POSTGRES_DB: pacientes
+    ports: ["127.0.0.1:5433:5432"]
+    volumes: [paciente-db-datos:/var/lib/postgresql/data]
+
+  medico-db:
+    <<: *base-datos
+    environment:
+      <<: *credenciales-db
+      POSTGRES_DB: medicos
+    ports: ["127.0.0.1:5434:5432"]
+    volumes: [medico-db-datos:/var/lib/postgresql/data]
+
+  especialidad-db:
+    <<: *base-datos
+    environment:
+      <<: *credenciales-db
+      POSTGRES_DB: especialidades
+    ports: ["127.0.0.1:5435:5432"]
+    volumes: [especialidad-db-datos:/var/lib/postgresql/data]
+
+  turno-db:
+    <<: *base-datos
+    environment:
+      <<: *credenciales-db
+      POSTGRES_DB: turnos
+    ports: ["127.0.0.1:5436:5432"]
+    volumes: [turno-db-datos:/var/lib/postgresql/data]
+
+  consulta-db:
+    <<: *base-datos
+    environment:
+      <<: *credenciales-db
+      POSTGRES_DB: consultas
+    ports: ["127.0.0.1:5437:5432"]
+    volumes: [consulta-db-datos:/var/lib/postgresql/data]
+
+  # =================== Microservicios ===================
+  # Cada servicio depende SOLO de su propia base de datos. Las dependencias entre servicios son
+  # "blandas": si otro servicio no está, este igual arranca y responde 503 en las operaciones que lo necesitan.
+
+  paciente-service:
+    <<: *microservicio
+    build: ./services/paciente-service
+    image: consultorio/paciente-service:1.0.0
+    environment:
+      <<: *entorno-servicio
+      SERVER_PORT: 8081
+      DB_URL: jdbc:postgresql://paciente-db:5432/pacientes
+      # Primer usuario administrativo (solo se crea si todavía no existe ninguno)
+      ADMIN_USUARIO: ${ADMIN_USUARIO:-admin}
+      ADMIN_CLAVE: ${ADMIN_CLAVE:?Falta ADMIN_CLAVE en .env. Ver .env.example}
+    ports: ["127.0.0.1:8081:8081"]
+    depends_on:
+      paciente-db: { condition: service_healthy }
+
+  medico-service:
+    <<: *microservicio
+    build: ./services/medico-service
+    image: consultorio/medico-service:1.0.0
+    environment:
+      <<: *entorno-servicio
+      SERVER_PORT: 8082
+      DB_URL: jdbc:postgresql://medico-db:5432/medicos
+      ESPECIALIDAD_SERVICE_URL: http://especialidad-service:8083
+    ports: ["127.0.0.1:8082:8082"]
+    depends_on:
+      medico-db: { condition: service_healthy }
+
+  especialidad-service:
+    <<: *microservicio
+    build: ./services/especialidad-service
+    image: consultorio/especialidad-service:1.0.0
+    environment:
+      <<: *entorno-servicio
+      SERVER_PORT: 8083
+      DB_URL: jdbc:postgresql://especialidad-db:5432/especialidades
+    ports: ["127.0.0.1:8083:8083"]
+    depends_on:
+      especialidad-db: { condition: service_healthy }
+
+  turno-service:
+    <<: *microservicio
+    build: ./services/turno-service
+    image: consultorio/turno-service:1.0.0
+    environment:
+      <<: *entorno-servicio
+      SERVER_PORT: 8084
+      DB_URL: jdbc:postgresql://turno-db:5432/turnos
+      PACIENTE_SERVICE_URL: http://paciente-service:8081
+      MEDICO_SERVICE_URL: http://medico-service:8082
+      ESPECIALIDAD_SERVICE_URL: http://especialidad-service:8083
+      CONSULTORIO_APERTURA: "08:00"
+      CONSULTORIO_CIERRE: "20:00"
+      CONSULTORIO_DIAS: MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY
+    ports: ["127.0.0.1:8084:8084"]
+    depends_on:
+      turno-db: { condition: service_healthy }
+
+  consulta-service:
+    <<: *microservicio
+    build: ./services/consulta-service
+    image: consultorio/consulta-service:1.0.0
+    environment:
+      <<: *entorno-servicio
+      SERVER_PORT: 8085
+      DB_URL: jdbc:postgresql://consulta-db:5432/consultas
+      TURNO_SERVICE_URL: http://turno-service:8084
+      # Asistente de IA (opcional). Si Ollama no está, el servicio funciona igual.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      ASISTENTE_HABILITADO: ${ASISTENTE_HABILITADO:-true}
+      # Debe coincidir con el horario configurado en turno-service
+      CONSULTORIO_HORARIO_TEXTO: lunes a viernes de 08:00 a 20:00
+    ports: ["127.0.0.1:8085:8085"]
+    # Permite usar un Ollama instalado directamente en Windows: OLLAMA_BASE_URL=http://host.docker.internal:11434
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      consulta-db: { condition: service_healthy }
+
+  # =================== Frontend ===================
+  frontend:
+    build: ./frontend
+    image: consultorio/frontend:1.0.0
+    restart: unless-stopped
+    ports: ["127.0.0.1:3000:80"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/salud || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    # No depende de que los servicios estén sanos: la interfaz carga igual y avisa qué servicio falta.
+    depends_on:
+      paciente-service: { condition: service_started }
+      medico-service: { condition: service_started }
+      especialidad-service: { condition: service_started }
+      turno-service: { condition: service_started }
+      consulta-service: { condition: service_started }
+
+  # =================== IA local (OPCIONAL: perfil "ia") ===================
+  ollama:
+    image: ollama/ollama:0.40.14
+    profiles: ["ia"]
+    restart: unless-stopped
+    ports: ["127.0.0.1:11434:11434"]
+    volumes: [ollama-modelos:/root/.ollama]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  # Descarga el modelo una única vez (queda guardado en el volumen ollama-modelos) y termina.
+  ollama-modelo:
+    image: ollama/ollama:0.40.14
+    profiles: ["ia"]
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    command: ["pull", "${OLLAMA_MODEL:-llama3.2:3b}"]
+    depends_on:
+      ollama: { condition: service_healthy }
+
+volumes:
+  paciente-db-datos:
+  medico-db-datos:
+  especialidad-db-datos:
+  turno-db-datos:
+  consulta-db-datos:
+  ollama-modelos:

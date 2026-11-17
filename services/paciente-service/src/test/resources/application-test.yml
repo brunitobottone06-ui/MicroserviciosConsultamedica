@@ -1,0 +1,16 @@
+# Perfil de pruebas: base H2 en memoria (modo compatible con PostgreSQL), sin datos de ejemplo.
+spring:
+  datasource:
+    url: jdbc:h2:mem:pacientes;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password: ""
+  flyway:
+    locations: classpath:db/migration
+
+# Clave SOLO para pruebas automáticas (no es un secreto real)
+seguridad:
+  jwt:
+    secreto: clave-de-prueba-para-tests-de-al-menos-32-caracteres
+  admin:
+    usuario: admin
+    clave: clave-admin-de-prueba

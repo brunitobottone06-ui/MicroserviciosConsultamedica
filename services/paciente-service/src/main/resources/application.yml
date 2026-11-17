@@ -1,0 +1,42 @@
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+
+spring:
+  application:
+    name: paciente-service
+  datasource:
+    # Base de datos PROPIA de este servicio. Ningún otro servicio se conecta a ella.
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/pacientes}
+    username: ${DB_USERNAME:consultorio}
+    password: ${DB_PASSWORD:}
+    hikari:
+      connection-timeout: 5000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    locations: classpath:db/migration,classpath:db/datos-ejemplo
+
+# Inicio de sesión: clave con la que se verifican (y en paciente-service, se firman) los tokens JWT
+seguridad:
+  jwt:
+    secreto: ${JWT_SECRETO:}
+    duracion: 8h
+  # Primer usuario administrativo (se crea solo si todavía no existe ninguno)
+  admin:
+    usuario: ${ADMIN_USUARIO:admin}
+    clave: ${ADMIN_CLAVE:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+      roles: ADMINISTRATIVO
+      probes:
+        enabled: true

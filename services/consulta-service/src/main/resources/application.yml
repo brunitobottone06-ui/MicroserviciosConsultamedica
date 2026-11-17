@@ -1,0 +1,82 @@
+server:
+  port: ${SERVER_PORT:8085}
+  shutdown: graceful
+
+spring:
+  application:
+    name: consulta-service
+  datasource:
+    # Base de datos PROPIA de este servicio. Ningún otro servicio se conecta a ella.
+    url: ${DB_URL:jdbc:postgresql://localhost:5437/consultas}
+    username: ${DB_USERNAME:consultorio}
+    password: ${DB_PASSWORD:}
+    hikari:
+      connection-timeout: 5000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    locations: classpath:db/migration
+
+  # Timeouts por defecto de los clientes HTTP auto-configurados por Spring Boot.
+  # Los usa el cliente de Ollama de Spring AI: un modelo local en CPU puede tardar en responder.
+  # (El cliente hacia turno-service define sus propios timeouts, más cortos.)
+  http:
+    clients:
+      connect-timeout: 3s
+      # Menor que el límite de nginx y del frontend (180 s), para que el usuario reciba un mensaje claro.
+      read-timeout: ${OLLAMA_TIMEOUT:150s}
+
+  ai:
+    model:
+      chat: ollama
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      init:
+        # No descargar el modelo al iniciar: si Ollama no está, el servicio igual arranca.
+        pull-model-strategy: never
+      chat:
+        model: ${OLLAMA_MODEL:llama3.2:3b}
+        temperature: 0.3
+        num-predict: 400
+        # Mantiene el modelo cargado en memoria 30 min tras el último uso (evita arranques en frío lentos en CPU)
+        keep-alive: 30m
+    retry:
+      # Spring AI trae reintentos propios (por defecto 10, con esperas de varios segundos).
+      # En un chat eso dejaría a la persona esperando minutos si Ollama está caído: no se reintenta.
+      # (En Spring AI 2.0 este valor se usa como cantidad de REintentos.)
+      max-attempts: 0
+
+consultorio:
+  zona-horaria: ${CONSULTORIO_ZONA_HORARIA:America/Argentina/Buenos_Aires}
+
+asistente:
+  habilitado: ${ASISTENTE_HABILITADO:true}
+  timeout-verificacion: 2s
+  max-mensajes-historial: 10
+  nombre-consultorio: ${CONSULTORIO_NOMBRE:Consultorio Médico}
+  horario: ${CONSULTORIO_HORARIO_TEXTO:lunes a viernes de 08:00 a 20:00}
+  contacto: ${CONSULTORIO_CONTACTO:personalmente o por teléfono con la recepción del consultorio}
+
+clientes:
+  timeout-conexion: 2s
+  timeout-lectura: 3s
+  turno-url: ${TURNO_SERVICE_URL:http://localhost:8084}
+
+# Inicio de sesión: clave con la que se verifican (y en paciente-service, se firman) los tokens JWT
+seguridad:
+  jwt:
+    secreto: ${JWT_SECRETO:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+      roles: ADMINISTRATIVO
+      probes:
+        enabled: true
